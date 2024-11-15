@@ -11,40 +11,53 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
 use Illuminate\View\View;
+use Spatie\Permission\Models\Role;
 
 class RegisteredUserController extends Controller
 {
-    /**
-     * Display the registration view.
-     */
     public function create(): View
     {
-        return view('auth.register');
+        $rolesWithLabels = [
+            'specialist' => __('Specialist'),
+            'salon super admin' => __('Salon'),
+            'chain super admin' => __('Chain salon'),
+        ];
+
+        return view('auth.register', [
+            'roles' => array_keys($rolesWithLabels),
+            'roleLabels' => $rolesWithLabels,
+        ]);
     }
 
-    /**
-     * Handle an incoming registration request.
-     *
-     * @throws \Illuminate\Validation\ValidationException
-     */
     public function store(Request $request): RedirectResponse
     {
-        $request->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
-            'password' => ['required', 'confirmed', Rules\Password::defaults()],
-        ]);
+        $validatedData = $request->validate(
+            [
+                'name' => ['required', 'string', 'max:255'],
+                'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:' . User::class],
+                'password' => ['required', 'confirmed', Rules\Password::defaults()],
+                'register_as' => ['nullable', 'boolean'],
+                'role' => ['required_if:register_as,1'],
+            ],
+            [
+                'role.required_if' => __('Please select a role (specialist, salon, or chain salon) if you are registering as a specialist or company.'),
+            ]
+        );
 
         $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
+            'name' => $validatedData['name'],
+            'email' => $validatedData['email'],
+            'password' => Hash::make($validatedData['password']),
         ]);
 
-        event(new Registered($user));
+        $roleName = $validatedData['role'] ?? 'user';
+        if ($role = Role::where('name', $roleName)->first()) {
+            $user->roles()->attach($role);
+        }
 
+        event(new Registered($user));
         Auth::login($user);
 
-        return redirect(route('dashboard', absolute: false));
+        return redirect()->route('dashboard');
     }
 }
